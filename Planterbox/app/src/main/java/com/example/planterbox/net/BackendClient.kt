@@ -7,7 +7,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 
 object BackendClient {
     // Emulator -> laptop backend
-    private const val BASE_URL = "http://10.0.2.2:5000/"
+    private const val BASE_URL = "https://planterbox-backend.onrender.com"
 
     private val okHttp by lazy {
         val log = HttpLoggingInterceptor().apply {

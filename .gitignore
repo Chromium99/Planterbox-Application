@@ -1,0 +1,68 @@
+# ============================
+# Python / ML project
+# ============================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+*.venv/
+
+# Logs / temp
+*.log
+*.tmp
+*.temp
+
+# ============================
+# Datasets / large assets
+# ============================
+# Ignore ALL images anywhere (safe if you don't want any images in git)
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.gif
+*.webp
+
+# Ignore dataset folders (covers your current structure)
+data/
+GreenThumbV1/data/
+
+# Ignore any received/uploaded images from the server
+received_images/
+predictions_out/
+plants_to_test/
+
+# ============================
+# Model outputs
+# ============================
+models/
+*.keras
+*.h5
+*.ckpt
+*.pb
+*.tflite
+
+# ============================
+# Android / Gradle
+# ============================
+/build
+/.gradle
+/local.properties
+/.idea/
+/*.iml
+/captures
+.externalNativeBuild
+.cxx
+
+# ============================
+# OS / editor junk
+# ============================
+.DS_Store
+Thumbs.db
+.vscode/

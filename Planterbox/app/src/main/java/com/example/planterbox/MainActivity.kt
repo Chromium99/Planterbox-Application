@@ -1,54 +1,49 @@
 package com.example.planterbox
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.example.planterbox.ui.theme.PlanterboxTheme
-import android.graphics.Bitmap
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import android.Manifest
-import android.content.pm.PackageManager
-import android.net.Uri
-import android.os.Build
-import android.widget.Toast
-import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.ContextCompat
-import android.graphics.BitmapFactory
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
 import com.example.planterbox.net.BackendClient
 import com.example.planterbox.net.Diagnostic
 import com.example.planterbox.net.ProcessApi
 import com.example.planterbox.net.bitmapToImagePart
 import com.example.planterbox.net.textPart
+import com.example.planterbox.ui.theme.PlanterboxTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -66,20 +61,21 @@ class MainActivity : ComponentActivity() {
 
 object Routes {
     const val ONBOARDING = "onboarding"
-    const val HOME = "home"      // NEW: plant identifier screen
+    const val HOME = "home"
     const val SCAN = "scan"
     const val RESULT = "result"
 }
 
 @Composable
 fun PlanterboxNavHost(navController: NavHostController) {
-    // 🔹 Shared URI for gallery-selected image
+    // Shared URI for gallery-selected image
     var galleryImageUri by remember { mutableStateOf<Uri?>(null) }
 
-    // 🔹 Shared state for analysis result
+    // Shared state for analysis result
     var resultLabel by remember { mutableStateOf<String?>(null) }
     var resultConfidence by remember { mutableStateOf<Float?>(null) }
     var resultDiagnostic by remember { mutableStateOf<Diagnostic?>(null) }
+    var resultBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -98,32 +94,43 @@ fun PlanterboxNavHost(navController: NavHostController) {
                     }
                 )
             }
+
             composable(Routes.HOME) {
                 IdentifierScreen(
-                    onScanClick = { navController.navigate(Routes.SCAN) },
+                    onScanClick = {
+                        galleryImageUri = null
+                        navController.navigate(Routes.SCAN)
+                    },
                     onImageSelected = { uri ->
                         galleryImageUri = uri
                         navController.navigate(Routes.SCAN)
                     }
                 )
             }
+
             composable(Routes.SCAN) {
                 ScanScreen(
                     initialImageUri = galleryImageUri,
-                    onAnalysisCompleted = { label, confidence, diagnostic ->
+                    onBackToChooser = {
+                        galleryImageUri = null
+                        navController.popBackStack() // back to HOME
+                    },
+                    onAnalysisCompleted = { label, confidence, diagnostic, bitmap ->
                         resultLabel = label
                         resultConfidence = confidence
                         resultDiagnostic = diagnostic
+                        resultBitmap = bitmap
                         navController.navigate(Routes.RESULT)
                     }
                 )
-
             }
+
             composable(Routes.RESULT) {
                 PlantResultScreen(
                     label = resultLabel,
                     confidence = resultConfidence,
                     diagnostic = resultDiagnostic,
+                    bitmap = resultBitmap,
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -131,33 +138,23 @@ fun PlanterboxNavHost(navController: NavHostController) {
     }
 }
 
-
-
-
 /** -------- SCREEN 1: ONBOARDING -------- */
 
 @Composable
 fun GardenOnboardingScreen(onGetStarted: () -> Unit) {
-    // Soft green gradient background
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFFE8F5E9), // light mint
-                        Color(0xFFC8E6C9)  // soft green
-                    )
+                    colors = listOf(Color(0xFFE8F5E9), Color(0xFFC8E6C9))
                 )
             )
-            .padding(horizontal = 24.dp)
+            .padding(horizontal = 24.dp),
+        contentAlignment = Alignment.Center
     ) {
-        // Center card
         Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .wrapContentHeight()
-                .align(Alignment.Center),
+            modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.96f)),
             elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
@@ -168,7 +165,6 @@ fun GardenOnboardingScreen(onGetStarted: () -> Unit) {
                     .padding(horizontal = 24.dp, vertical = 32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Round logo with sprout
                 Surface(
                     modifier = Modifier.size(96.dp),
                     shape = CircleShape,
@@ -176,14 +172,11 @@ fun GardenOnboardingScreen(onGetStarted: () -> Unit) {
                     border = BorderStroke(2.dp, Color(0xFF66BB6A))
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "🌱",
-                            fontSize = 36.sp
-                        )
+                        Text(text = "🌱", fontSize = 36.sp)
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
                 Text(
                     text = "Planterbox",
@@ -195,15 +188,49 @@ fun GardenOnboardingScreen(onGetStarted: () -> Unit) {
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = "Identify plants instantly,\nkeep your garden thriving.",
+                    text = "Identify plants instantly and get\nAI-powered care tips in seconds.",
                     fontSize = 14.sp,
                     color = Color(0xFF4E6A52),
                     lineHeight = 18.sp
                 )
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
-                // Main button → go to Scan screen
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    AssistChip(
+                        onClick = {},
+                        label = { Text("📷 Scan") },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = Color(0xFFE8F5E9),
+                            labelColor = Color(0xFF1B5E20)
+                        ),
+                        border = BorderStroke(1.dp, Color(0xFF66BB6A))
+                    )
+                    AssistChip(
+                        onClick = {},
+                        label = { Text("🖼️ Upload") },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = Color(0xFFE8F5E9),
+                            labelColor = Color(0xFF1B5E20)
+                        ),
+                        border = BorderStroke(1.dp, Color(0xFF66BB6A))
+                    )
+                    AssistChip(
+                        onClick = {},
+                        label = { Text("✨ Care Tips") },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = Color(0xFFE8F5E9),
+                            labelColor = Color(0xFF1B5E20)
+                        ),
+                        border = BorderStroke(1.dp, Color(0xFF66BB6A))
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
                 Button(
                     onClick = onGetStarted,
                     modifier = Modifier
@@ -221,10 +248,20 @@ fun GardenOnboardingScreen(onGetStarted: () -> Unit) {
                         fontWeight = FontWeight.SemiBold
                     )
                 }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = "Upload or scan a plant photo to begin",
+                    fontSize = 12.sp,
+                    color = Color(0xFF7A907D)
+                )
             }
         }
     }
 }
+
+/** -------- SCREEN 2: HOME (CHOOSER) -------- */
 
 @Composable
 fun IdentifierScreen(
@@ -232,7 +269,6 @@ fun IdentifierScreen(
     onImageSelected: (Uri) -> Unit = {}
 ) {
     val context = LocalContext.current
-
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
 
     val galleryLauncher = rememberLauncherForActivityResult(
@@ -240,21 +276,17 @@ fun IdentifierScreen(
     ) { uri ->
         if (uri != null) {
             selectedImageUri = uri
-            onImageSelected(uri)   // 🔹 notify parent
+            onImageSelected(uri)
         } else {
             Toast.makeText(context, "No image selected", Toast.LENGTH_SHORT).show()
         }
     }
 
-    // permission launcher
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) {
-            galleryLauncher.launch("image/*")
-        } else {
-            Toast.makeText(context, "Permission denied", Toast.LENGTH_SHORT).show()
-        }
+        if (granted) galleryLauncher.launch("image/*")
+        else Toast.makeText(context, "Permission denied", Toast.LENGTH_SHORT).show()
     }
 
     fun openGalleryWithPermission() {
@@ -269,11 +301,8 @@ fun IdentifierScreen(
             permission
         ) == PackageManager.PERMISSION_GRANTED
 
-        if (hasPermission) {
-            galleryLauncher.launch("image/*")
-        } else {
-            permissionLauncher.launch(permission)
-        }
+        if (hasPermission) galleryLauncher.launch("image/*")
+        else permissionLauncher.launch(permission)
     }
 
     Box(
@@ -281,19 +310,14 @@ fun IdentifierScreen(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFFE8F5E9),
-                        Color(0xFFC8E6C9)
-                    )
+                    colors = listOf(Color(0xFFE8F5E9), Color(0xFFC8E6C9))
                 )
             )
             .padding(horizontal = 24.dp),
         contentAlignment = Alignment.Center
     ) {
         Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .wrapContentHeight(),
+            modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.96f)),
             elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
@@ -304,7 +328,6 @@ fun IdentifierScreen(
                     .padding(horizontal = 24.dp, vertical = 28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-
                 Text(
                     text = "Plant Identifier",
                     fontSize = 22.sp,
@@ -312,15 +335,22 @@ fun IdentifierScreen(
                     color = Color(0xFF1B5E20)
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                // Upload button – opens gallery with permission
+                Text(
+                    text = "Choose how you want to add a plant photo",
+                    fontSize = 13.sp,
+                    color = Color(0xFF4E6A52)
+                )
+
+                Spacer(modifier = Modifier.height(18.dp))
+
                 OutlinedButton(
                     onClick = { openGalleryWithPermission() },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(2.dp, Color(0xFF444444))
                 ) {
                     Text(text = "Upload Image", fontSize = 15.sp, color = Color(0xFF444444))
@@ -328,13 +358,12 @@ fun IdentifierScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Scan button – goes to camera screen
                 OutlinedButton(
                     onClick = onScanClick,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(2.dp, Color(0xFF1B5E20))
                 ) {
                     Text(
@@ -345,12 +374,10 @@ fun IdentifierScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // Optional: tiny status text when an image is chosen
                 if (selectedImageUri != null) {
+                    Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "Image selected from gallery ✔",
+                        text = "Image selected ✔",
                         fontSize = 12.sp,
                         color = Color(0xFF4E6A52)
                     )
@@ -360,39 +387,26 @@ fun IdentifierScreen(
     }
 }
 
-
-/** -------- SCREEN 2: SCAN / HOME PLACEHOLDER -------- */
+/** -------- SCREEN 3: SCAN / UPLOAD PREVIEW + ANALYZE -------- */
 
 @Composable
 fun ScanScreen(
     initialImageUri: Uri? = null,
-    onAnalysisCompleted: (String, Float, Diagnostic?) -> Unit
+    onBackToChooser: () -> Unit,
+    onAnalysisCompleted: (String, Float, Diagnostic?, Bitmap?) -> Unit
 ) {
     val context = LocalContext.current
-
-    val detectionThreshold = 0.55f  // 55%
     val scope = rememberCoroutineScope()
 
-    // 🔹 Classifier + error state
+    val detectionThreshold = 0.55f
+
     var classifier by remember { mutableStateOf<SpeciesClassifier?>(null) }
     var classifierError by remember { mutableStateOf<String?>(null) }
-
-    // Load TFLite model once, safely
-    LaunchedEffect(Unit) {
-        try {
-            classifier = SpeciesClassifier(context)
-            classifierError = null
-        } catch (e: Exception) {
-            classifierError = "Error loading model: ${e.message}"
-        }
-    }
 
     var capturedImage by remember { mutableStateOf<Bitmap?>(null) }
     var errorText by remember { mutableStateOf<String?>(null) }
     var isAnalyzing by remember { mutableStateOf(false) }
 
-
-    // 📷 Camera launcher
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicturePreview()
     ) { bitmap ->
@@ -404,7 +418,15 @@ fun ScanScreen(
         }
     }
 
-    // 💾 Load gallery image if we navigated here from "Upload Image"
+    LaunchedEffect(Unit) {
+        try {
+            classifier = SpeciesClassifier(context)
+            classifierError = null
+        } catch (e: Exception) {
+            classifierError = "Error loading model: ${e.message}"
+        }
+    }
+
     LaunchedEffect(initialImageUri) {
         if (initialImageUri != null && capturedImage == null) {
             try {
@@ -422,184 +444,204 @@ fun ScanScreen(
         }
     }
 
-    // ---------- UI ----------
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFFE8F5E9),
-                        Color(0xFFC8E6C9)
-                    )
+                    colors = listOf(Color(0xFFE8F5E9), Color(0xFFC8E6C9))
                 )
             )
             .padding(horizontal = 24.dp),
         contentAlignment = Alignment.Center
     ) {
-        Column(
+        // ✅ Consistent with HOME/ONBOARDING: one centered card holding everything
+        Card(
             modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.96f)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
         ) {
-
-            // Image card
-            Card(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(320.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                border = BorderStroke(2.dp, Color(0xFFB0B0B0))
+                    .padding(horizontal = 18.dp, vertical = 18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+                Text(
+                    text = if (initialImageUri != null) "Preview Upload" else "Scan Plant",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF1B5E20)
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Image preview (same style as other cards)
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(240.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    border = BorderStroke(2.dp, Color(0xFFB0B0B0))
                 ) {
-                    if (capturedImage != null) {
-                        Image(
-                            bitmap = capturedImage!!.asImageBitmap(),
-                            contentDescription = "Plant photo",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "IMAGE PLACEHOLDER",
-                                fontSize = 14.sp,
-                                color = Color(0xFF888888)
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (capturedImage != null) {
+                            Image(
+                                bitmap = capturedImage!!.asImageBitmap(),
+                                contentDescription = "Plant photo",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Photo will appear here",
-                                fontSize = 12.sp,
-                                color = Color(0xFFAAAAAA)
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // 👉 Take / Analyze button
-            OutlinedButton(
-                onClick = {
-                    if (capturedImage == null) {
-                        // Step 1: Take photo
-                        cameraLauncher.launch(null)
-                    } else {
-                        // Step 2: Run the model
-                        val cls = classifier
-                        if (cls == null) {
-                            errorText = classifierError ?: "Model not ready yet."
                         } else {
-                            try {
-                                val preds = cls.classify(capturedImage!!, topK = 3)
-                                val best = preds.maxByOrNull { it.confidence }
-
-                                if (best == null || best.confidence < detectionThreshold) {
-                                    errorText = "PLANT NOT DETECTED. Please retake."
-                                } else {
-                                    errorText = null
-                                    isAnalyzing = true
-
-                                    scope.launch {
-                                        try {
-                                            val api = BackendClient.retrofit.create(ProcessApi::class.java)
-                                            val resp = api.processImage(
-                                                image = bitmapToImagePart(capturedImage!!),
-                                                speciesName = textPart(best.label)
-                                            )
-
-                                            isAnalyzing = false
-                                            onAnalysisCompleted(best.label, best.confidence, resp.data?.diagnostic)
-                                        } catch (e: Exception) {
-                                            isAnalyzing = false
-                                            errorText = "AI analysis failed: ${e.message}"
-                                        }
-                                    }
-                                }
-
-                            } catch (e: Exception) {
-                                errorText = "Error running model: ${e.message}"
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "No image yet",
+                                    fontSize = 14.sp,
+                                    color = Color(0xFF888888)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Tap “Take Photo” to capture one",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFFAAAAAA)
+                                )
                             }
                         }
                     }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                shape = RoundedCornerShape(10.dp),
-                border = BorderStroke(2.dp, Color(0xFF1B5E20))
-            ) {
-                Text(
-                    text = if (capturedImage == null) "Take Photo" else "Analyze Plant",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF1B5E20)
-                )
-            }
+                }
 
-            Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-            // 🔁 Retake button
-            OutlinedButton(
-                onClick = {
-                    capturedImage = null
-                    errorText = null
-                    cameraLauncher.launch(null)
-                },
-                enabled = capturedImage != null,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                shape = RoundedCornerShape(10.dp),
-                border = BorderStroke(2.dp, Color(0xFF444444))
-            ) {
-                Text(
-                    text = "Retake Photo",
-                    fontSize = 15.sp,
-                    color = if (capturedImage != null) Color(0xFF444444) else Color(0xFFBBBBBB)
-                )
-            }
+                // Primary button
+                OutlinedButton(
+                    onClick = {
+                        if (capturedImage == null) {
+                            cameraLauncher.launch(null)
+                            return@OutlinedButton
+                        }
 
-            Spacer(modifier = Modifier.height(16.dp))
+                        val cls = classifier
+                        if (cls == null) {
+                            errorText = classifierError ?: "Model not ready yet."
+                            return@OutlinedButton
+                        }
 
-            if (isAnalyzing) {
-                Spacer(modifier = Modifier.height(12.dp))
-                CircularProgressIndicator()
-                Spacer(modifier = Modifier.height(6.dp))
-                Text("Analyzing with AI...", fontSize = 12.sp, color = Color(0xFF4E6A52))
-            }
+                        try {
+                            val preds = cls.classify(capturedImage!!, topK = 3)
+                            val best = preds.maxByOrNull { it.confidence }
 
-            Spacer(modifier = Modifier.height(16.dp))
+                            if (best == null || best.confidence < detectionThreshold) {
+                                errorText = "PLANT NOT DETECTED. Please try another photo."
+                                return@OutlinedButton
+                            }
 
-            // ⚠️ Only show errors (no prediction text on this screen)
-            val combinedError = errorText ?: classifierError
-            if (combinedError != null) {
-                Text(
-                    text = combinedError,
-                    fontSize = 12.sp,
-                    color = Color(0xFFD32F2F)
-                )
+                            errorText = null
+                            isAnalyzing = true
+
+                            scope.launch {
+                                try {
+                                    val api = BackendClient.retrofit.create(ProcessApi::class.java)
+                                    val resp = api.processImage(
+                                        image = bitmapToImagePart(capturedImage!!),
+                                        speciesName = textPart(best.label)
+                                    )
+
+                                    isAnalyzing = false
+                                    onAnalysisCompleted(
+                                        best.label,
+                                        best.confidence,
+                                        resp.data?.diagnostic,
+                                        capturedImage
+                                    )
+                                } catch (e: Exception) {
+                                    isAnalyzing = false
+                                    errorText = "AI analysis failed: ${e.message}"
+                                }
+                            }
+                        } catch (e: Exception) {
+                            errorText = "Error running model: ${e.message}"
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(2.dp, Color(0xFF1B5E20))
+                ) {
+                    Text(
+                        text = if (capturedImage == null) "Take Photo" else "Analyze Plant",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF1B5E20)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // ✅ Secondary button now goes back to the chooser page (consistent UX)
+                OutlinedButton(
+                    onClick = {
+                        capturedImage = null
+                        errorText = null
+                        onBackToChooser()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(2.dp, Color(0xFF444444))
+                ) {
+                    Text(
+                        text = "Back (Upload / Scan)",
+                        fontSize = 15.sp,
+                        color = Color(0xFF444444)
+                    )
+                }
+
+                if (isAnalyzing) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    CircularProgressIndicator()
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        "Analyzing with AI...",
+                        fontSize = 12.sp,
+                        color = Color(0xFF4E6A52)
+                    )
+                }
+
+                val combinedError = errorText ?: classifierError
+                if (combinedError != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = combinedError,
+                        fontSize = 12.sp,
+                        color = Color(0xFFD32F2F)
+                    )
+                }
             }
         }
     }
 }
+
+/** -------- SCREEN 4: RESULT -------- */
 
 @Composable
 fun PlantResultScreen(
     label: String?,
     confidence: Float?,
     diagnostic: Diagnostic?,
+    bitmap: Bitmap?,
     onBack: () -> Unit
 ) {
     val name = label ?: "Unknown plant"
     val confPercent = confidence?.let { String.format("%.1f", it * 100f) }
 
-    // ✅ Use LLM output from backend (fallbacks included)
     val tipsText = diagnostic?.care_recommendations
         ?: diagnostic?.error
         ?: "No AI care tips received. Please try again."
@@ -611,22 +653,18 @@ fun PlantResultScreen(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFFE8F5E9),
-                        Color(0xFFC8E6C9)
-                    )
+                    colors = listOf(Color(0xFFE8F5E9), Color(0xFFC8E6C9))
                 )
             )
-            .padding(horizontal = 24.dp, vertical = 32.dp)
+            .padding(horizontal = 24.dp, vertical = 24.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-
             Text(
                 text = name,
-                fontSize = 26.sp,
+                fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF1B5E20)
             )
@@ -635,7 +673,7 @@ fun PlantResultScreen(
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "Confidence: $confPercent%",
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     color = Color(0xFF4E6A52)
                 )
             }
@@ -650,9 +688,31 @@ fun PlantResultScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // Care tips (LLM)
+            // ✅ Image preview BEFORE tips (smaller + polished)
+            if (bitmap != null) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+                ) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = "Analyzed plant photo",
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(18.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+            }
+
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -664,7 +724,7 @@ fun PlantResultScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(20.dp)
+                        .padding(18.dp)
                 ) {
                     Text(
                         text = "Care Tips",
@@ -672,7 +732,7 @@ fun PlantResultScreen(
                         fontWeight = FontWeight.SemiBold,
                         color = Color(0xFF1B5E20)
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                     Text(
                         text = tipsText,
                         fontSize = 14.sp,
@@ -682,7 +742,7 @@ fun PlantResultScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             OutlinedButton(
                 onClick = onBack,
@@ -717,7 +777,9 @@ fun OnboardingPreview() {
 @Composable
 fun ScanPreview() {
     PlanterboxTheme {
-        ScanScreen(onAnalysisCompleted = { _, _, _ -> })
+        ScanScreen(
+            onBackToChooser = {},
+            onAnalysisCompleted = { _, _, _, _ -> }
+        )
     }
 }
-
